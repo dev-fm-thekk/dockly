@@ -39,13 +39,16 @@ type Model struct {
 	containers []dockerapi.Container
 	images     []dockerapi.Image
 	isLoading  bool
+
+	scrollOffsets map[int]int
 }
 
 func NewModel() Model {
 	return Model{
-		activeTab: tabOverview,
-		tabs:      []string{"Overview", "Containers", "Images", "Settings"},
-		isLoading: true,
+		activeTab:     tabOverview,
+		tabs:          []string{"Overview", "Containers", "Images", "Settings"},
+		isLoading:     true,
+		scrollOffsets: make(map[int]int),
 	}
 }
 
@@ -72,6 +75,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeTab = (m.activeTab + 1) % len(m.tabs)
 		case "shift+tab", "left", "h":
 			m.activeTab = (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
+		case "up", "k":
+			if m.scrollOffsets[m.activeTab] > 0 {
+				m.scrollOffsets[m.activeTab]--
+			}
+		case "down", "j":
+			m.scrollOffsets[m.activeTab]++
 		}
 	}
 	return m, nil

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 )
 
 func createProgressBar(percentage float64, length int) string {
@@ -35,15 +36,20 @@ func (m Model) renderedTabs(width int) string {
 func (m Model) renderedContent(width, height int) string {
 	var content string
 
+	// Usable height inside the pane borders and padding
+	// Header takes 1 line, spacer 1 line.
+	// Total overhead: 2 (borders) + 2 (padding) + 1 (header) + 1 (spacer) = 6 lines
+	maxVisibleItems := height - 10 // table rows are 1 line each
+
 	switch m.activeTab {
 	case tabOverview:
 		if m.isLoading {
 			content = activePaneStyle.Width(width - 4).Height(height - 4).Align(lipgloss.Center).Render("\n\nLoading Docker API Data...")
 			break
 		}
-		statusLabel := "System Status: OFFLINE"
-		if m.metrics.Status {
-			statusLabel = "System Status: ONLINE"
+		statusLabel := "System Status: ONLINE"
+		if !m.metrics.Status {
+			statusLabel = "System Status: OFFLINE"
 		}
 		memUsedGb := float64(m.metrics.Memory.Used) / (1024 * 1024 * 1024)
 		memTotalGb := float64(m.metrics.Memory.Total) / (1024 * 1024 * 1024)
@@ -62,6 +68,8 @@ func (m Model) renderedContent(width, height int) string {
 			"",
 			fmt.Sprintf("Active Containers: %d", m.metrics.ActiveContainers),
 			fmt.Sprintf("Total Images:      %d", m.metrics.Images),
+			"",
+			lipgloss.NewStyle().Foreground(colorSubtext).Render("Last updated: "+time.Now().Format("15:04:05")),
 		)
 		content = activePaneStyle.Width(width - 4).Height(height - 4).Render(stats)
 
@@ -70,25 +78,53 @@ func (m Model) renderedContent(width, height int) string {
 			content = activePaneStyle.Width(width - 4).Height(height - 4).Align(lipgloss.Center).Render("\n\nLoading Docker API Data...")
 			break
 		}
-		var list []string
+
+		headers := []string{"STATUS", "NAME", "IMAGE", "UPTIME", "STATE"}
+		var rows [][]string
 		for _, c := range m.containers {
 			statusIcon := "🔴"
 			if strings.Contains(strings.ToLower(c.State), "running") {
 				statusIcon = "🟢"
 			}
-			ports := ""
-			if ports == "" {
-				ports = "None"
-			}
-			list = append(list, fmt.Sprintf("%s %-20s | %-16s | Ports: %s", statusIcon, c.Name, c.Status, ports))
+			rows = append(rows, []string{
+				statusIcon,
+				c.Name,
+				c.Image,
+				c.Status,
+				c.State,
+			})
 		}
-		if len(list) == 0 {
-			list = append(list, "No Containers Found.")
+
+		// Calculate scroll
+		offset := m.scrollOffsets[tabContainers]
+		if offset > len(rows)-maxVisibleItems && len(rows) > maxVisibleItems {
+			offset = len(rows) - maxVisibleItems
 		}
+		if offset < 0 {
+			offset = 0
+		}
+		visibleRows := rows[offset:min(offset+maxVisibleItems, len(rows))]
+
+		t := table.New().
+			Headers(headers...).
+			Rows(visibleRows...).
+			BaseStyle(rowStyle).
+			StyleFunc(func(row, col int) lipgloss.Style {
+				if row == 0 { // header
+					return columnHeaderStyle
+				}
+				return rowStyle
+			})
+
+		scrollInfo := ""
+		if len(rows) > maxVisibleItems {
+			scrollInfo = fmt.Sprintf(" (%d-%d of %d)", offset+1, min(offset+maxVisibleItems, len(rows)), len(rows))
+		}
+
 		content = activePaneStyle.Width(width - 4).Height(height - 4).Render(
 			lipgloss.JoinVertical(lipgloss.Left,
-				headerStyle.Render("Active Containers"),
-				strings.Join(list, "\n\n"),
+				headerStyle.Render("Active Containers"+scrollInfo),
+				t.String(),
 			),
 		)
 
@@ -97,19 +133,51 @@ func (m Model) renderedContent(width, height int) string {
 			content = activePaneStyle.Width(width - 4).Height(height - 4).Align(lipgloss.Center).Render("\n\nLoading Docker API Data...")
 			break
 		}
-		var list []string
+
+		headers := []string{"REPOSITORY", "TAG", "ID", "SIZE", "CREATED"}
+		var rows [][]string
 		for _, img := range m.images {
-			sizeMb := float64(img.Size) / (1024 * 1024)
-			createdTime := time.Unix(img.Created, 0).Format(time.RFC822)
-			list = append(list, fmt.Sprintf("%-25s : %-15s | %7.2f MB | %s", img.Repository, img.Tag, sizeMb, createdTime))
+			sizeMb := fmt.Sprintf("%.2f MB", float64(img.Size)/(1024*1024))
+			createdTime := time.Unix(img.Created, 0).Format("2006-01-02")
+			rows = append(rows, []string{
+				img.Repository,
+				img.Tag,
+				img.ID,
+				sizeMb,
+				createdTime,
+			})
 		}
-		if len(list) == 0 {
-			list = append(list, "No Local Images Found.")
+
+		// Calculate scroll
+		offset := m.scrollOffsets[tabImages]
+		if offset > len(rows)-maxVisibleItems && len(rows) > maxVisibleItems {
+			offset = len(rows) - maxVisibleItems
 		}
+		if offset < 0 {
+			offset = 0
+		}
+		visibleRows := rows[offset:min(offset+maxVisibleItems, len(rows))]
+
+		t := table.New().
+			Headers(headers...).
+			Rows(visibleRows...).
+			BaseStyle(rowStyle).
+			StyleFunc(func(row, col int) lipgloss.Style {
+				if row == 0 { // header
+					return columnHeaderStyle
+				}
+				return rowStyle
+			})
+
+		scrollInfo := ""
+		if len(rows) > maxVisibleItems {
+			scrollInfo = fmt.Sprintf(" (%d-%d of %d)", offset+1, min(offset+maxVisibleItems, len(rows)), len(rows))
+		}
+
 		content = activePaneStyle.Width(width - 4).Height(height - 4).Render(
 			lipgloss.JoinVertical(lipgloss.Left,
-				headerStyle.Render("Local Images"),
-				strings.Join(list, "\n\n"),
+				headerStyle.Render("Local Images"+scrollInfo),
+				t.String(),
 			),
 		)
 
@@ -127,4 +195,11 @@ func (m Model) renderedContent(width, height int) string {
 	}
 
 	return content
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

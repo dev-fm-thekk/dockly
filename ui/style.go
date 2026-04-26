@@ -46,4 +46,14 @@ var (
 	footerStyle = baseStyle.
 			Foreground(colorSubtext).
 			MarginTop(1)
+
+	columnHeaderStyle = lipgloss.NewStyle().
+				Foreground(colorPrimary).
+				Bold(true).
+				Border(lipgloss.NormalBorder(), false, false, true, false).
+				BorderForeground(colorSubtext).
+				Padding(0, 1)
+
+	rowStyle = lipgloss.NewStyle().
+			Padding(0, 1)
 )
