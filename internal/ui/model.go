@@ -4,20 +4,22 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	dockerapi "dockly/docker-api"
+	dockerapi "dockly/internal/docker-api"
 )
 
 const (
 	tabOverview = iota
 	tabContainers
 	tabImages
-	tabSettings
+	tabNetwork
+	tabAccount
 )
 
 type apiDataMsg struct {
 	metrics    dockerapi.Metrics
 	containers []dockerapi.Container
 	images     []dockerapi.Image
+	network    []dockerapi.NetworkConfig
 }
 
 func fetchData() tea.Msg {
@@ -25,6 +27,7 @@ func fetchData() tea.Msg {
 		metrics:    dockerapi.FetchMetrics(),
 		containers: dockerapi.FetchContainers(),
 		images:     dockerapi.FetchImages(),
+		network:    dockerapi.FetchNetConfigAll(),
 	}
 }
 
@@ -38,6 +41,7 @@ type Model struct {
 	metrics    dockerapi.Metrics
 	containers []dockerapi.Container
 	images     []dockerapi.Image
+	network    []dockerapi.NetworkConfig
 	isLoading  bool
 
 	scrollOffsets map[int]int
@@ -46,7 +50,7 @@ type Model struct {
 func NewModel() Model {
 	return Model{
 		activeTab:     tabOverview,
-		tabs:          []string{"Overview", "Containers", "Images", "Settings"},
+		tabs:          []string{"Overview", "Containers", "Images", "Network"},
 		isLoading:     true,
 		scrollOffsets: make(map[int]int),
 	}
@@ -62,6 +66,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.metrics = msg.metrics
 		m.containers = msg.containers
 		m.images = msg.images
+		m.network = msg.network
 		m.isLoading = false
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -91,7 +96,7 @@ func (m Model) View() tea.View {
 		return tea.NewView("Initializing...") // Wait for first WindowSizeMsg
 	}
 
-	title := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, titleStyle.Render("Dockly CLI Dashboard"))
+	title := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, titleStyle.Render("Dockly"))
 
 	tabs := m.renderedTabs(m.width)
 

@@ -181,17 +181,58 @@ func (m Model) renderedContent(width, height int) string {
 			),
 		)
 
-	case tabSettings:
-		settings := lipgloss.JoinVertical(lipgloss.Left,
-			headerStyle.Render("Dashboard Preferences"),
-			"",
-			"[x] Enable Dark Mode",
-			"[ ] Auto-refresh stats",
-			"[x] Show exiting containers",
-			"",
-			"Press 'space' to toggle (Placeholder)",
+	case tabNetwork:
+		if m.isLoading {
+			content = activePaneStyle.Width(width - 4).Height(height - 4).Align(lipgloss.Center).Render("\n\nLoading Docker API Data...")
+			break
+		}
+
+		headers := []string{"ID", "NAME", "HOST", "PORT", "CONTAINER_PORT"}
+		var rows [][]string
+
+		for _, ctn := range m.network {
+			rows = append(rows, []string{
+				ctn.Container.ID,
+				ctn.Container.Name,
+				ctn.Host,
+				ctn.Port,
+				ctn.Container_port,
+			})
+		}
+
+		// Calculate scroll
+		offset := m.scrollOffsets[tabNetwork]
+		if offset > len(rows)-maxVisibleItems && len(rows) > maxVisibleItems {
+			offset = len(rows) - maxVisibleItems
+		}
+		if offset < 0 {
+			offset = 0
+		}
+		visibleRows := rows[offset:min(offset+maxVisibleItems, len(rows))]
+
+		t := table.New().
+			Headers(headers...).
+			Rows(visibleRows...).
+			BaseStyle(rowStyle).
+			StyleFunc(func(row, col int) lipgloss.Style {
+				if row == 0 { // header
+					return columnHeaderStyle
+				}
+				return rowStyle
+			})
+
+		scrollInfo := ""
+		if len(rows) > maxVisibleItems {
+			scrollInfo = fmt.Sprintf(" (%d-%d of %d)", offset+1, min(offset+maxVisibleItems, len(rows)), len(rows))
+		}
+
+		content = activePaneStyle.Width(width - 4).Height(height - 4).Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				headerStyle.Render("Network info"+scrollInfo),
+				t.String(),
+			),
 		)
-		content = activePaneStyle.Width(width - 4).Height(height - 4).Render(settings)
+
 	}
 
 	return content
