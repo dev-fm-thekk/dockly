@@ -17,222 +17,183 @@ func createProgressBar(percentage float64, length int) string {
 		filled = 0
 	}
 	empty := length - filled
-	return "[" + strings.Repeat("█", filled) + strings.Repeat("░", empty) + "]"
+	return "[" + lipgloss.NewStyle().Foreground(colorBlue).Render(strings.Repeat("█", filled)) + strings.Repeat("░", empty) + "]"
 }
 
 func (m Model) renderedTabs(width int) string {
 	var renderedTabs []string
 	for i, t := range m.tabs {
+		style := tabStyle
 		if i == m.activeTab {
-			renderedTabs = append(renderedTabs, activeTabStyle.Render(t))
-		} else {
-			renderedTabs = append(renderedTabs, tabStyle.Render(t))
+			style = activeTabStyle
 		}
+		renderedTabs = append(renderedTabs, style.Render(t))
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
-	return lipgloss.PlaceHorizontal(width, lipgloss.Center, row)
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, tabRowStyle.Width(width).Render(row))
 }
 
 func (m Model) renderedContent(width, height int) string {
 	var content string
+	maxVisibleItems := height - 6
+	if maxVisibleItems < 1 {
+		maxVisibleItems = 1
+	}
 
-	// Usable height inside the pane borders and padding
-	// Header takes 1 line, spacer 1 line.
-	// Total overhead: 2 (borders) + 2 (padding) + 1 (header) + 1 (spacer) = 6 lines
-	maxVisibleItems := height - 10 // table rows are 1 line each
+	renderTable := func(title string, headers []string, rows [][]string, tabIndex int) string {
+		numRows := len(rows)
+		cursor := m.cursor[tabIndex]
+
+		// Handle Automatic Scrolling: the selection drives the view
+		offset := m.scrollOffsets[tabIndex]
+		if cursor < offset {
+			offset = cursor
+		} else if cursor >= offset+maxVisibleItems {
+			offset = cursor - maxVisibleItems + 1
+		}
+
+		// Update model's stored offset
+		m.scrollOffsets[tabIndex] = offset
+
+		end := offset + maxVisibleItems
+		if end > numRows {
+			end = numRows
+		}
+
+		var visibleRows [][]string
+		if numRows > 0 && offset < numRows {
+			visibleRows = rows[offset:end]
+		}
+
+		t := table.New().
+			Headers(headers...).
+			Rows(visibleRows...).
+			Width(width - 4).
+			BaseStyle(rowStyle).
+			StyleFunc(func(row, col int) lipgloss.Style {
+				// absoluteIndex translates the table's 1-based data rows into 0-based array indices.
+				// If row is 1 (first data row) and offset is 0: (1 - 1) + 0 = 0 (First Element).
+
+				// Now we compare our calculated data index against the Model's cursor.
+				if row == cursor {
+					return selectedRowStyle
+				}
+
+				// Apply zebra striping based on the absolute position in the full list.
+				if row%2 == 0 {
+					return rowAltStyle
+				}
+				return rowStyle
+			})
+
+		scrollInfo := ""
+		if numRows > 0 {
+			// Shows current position as 1-based (e.g., 1/10 instead of 0/10)
+			scrollInfo = fmt.Sprintf(" %d/%d ", cursor+1, numRows)
+		}
+
+		titleBar := tableTitleStyle.Width(width - 4).Render(
+			lipgloss.JoinHorizontal(lipgloss.Center,
+				strings.Repeat("─", max(2, (width-len(title)-len(scrollInfo)-10)/2)),
+				" "+title+scrollInfo+" ",
+				strings.Repeat("─", max(2, (width-len(title)-len(scrollInfo)-10)/2)),
+			),
+		)
+
+		return activePaneStyle.Width(width - 2).Height(height).Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				titleBar,
+				t.String(),
+			),
+		)
+	}
 
 	switch m.activeTab {
 	case tabOverview:
 		if m.isLoading {
-			content = activePaneStyle.Width(width - 4).Height(height - 4).Align(lipgloss.Center).Render("\n\nLoading Docker API Data...")
+			content = activePaneStyle.Width(width - 2).Height(height).Align(lipgloss.Center).Render("\n\nLoading...")
 			break
 		}
-		statusLabel := "System Status: ONLINE"
-		if !m.metrics.Status {
-			statusLabel = "System Status: OFFLINE"
-		}
+
 		memUsedGb := float64(m.metrics.Memory.Used) / (1024 * 1024 * 1024)
 		memTotalGb := float64(m.metrics.Memory.Total) / (1024 * 1024 * 1024)
-		memPerc := float64(0)
-		if memTotalGb > 0 {
-			memPerc = (memUsedGb / memTotalGb) * 100.0
+		memPerc := (memUsedGb / memTotalGb) * 100.0
+
+		// Explicit white style to override terminal defaults
+		whiteText := lipgloss.NewStyle().Foreground(colorWhite)
+
+		// Updated bar helper to handle the blue/white combo strictly
+		createBlueWhiteBar := func(percentage float64, length int) string {
+			filledCount := int((percentage / 100.0) * float64(length))
+			if filledCount > length {
+				filledCount = length
+			}
+			if filledCount < 0 {
+				filledCount = 0
+			}
+
+			filled := lipgloss.NewStyle().Foreground(colorBlue).Render(strings.Repeat("█", filledCount))
+			empty := whiteText.Render(strings.Repeat("░", length-filledCount))
+
+			return whiteText.Render("[") + filled + empty + whiteText.Render("]")
 		}
-		cpuBar := createProgressBar(m.metrics.CPU.Percentage, 20)
-		memBar := createProgressBar(memPerc, 20)
 
 		stats := lipgloss.JoinVertical(lipgloss.Left,
-			headerStyle.Render(statusLabel),
+			headerStyle.Render("SYSTEM OVERVIEW"),
 			"",
-			fmt.Sprintf("CPU Usage:    %s %.2f%%", cpuBar, m.metrics.CPU.Percentage),
-			fmt.Sprintf("Memory Usage: %s %.2fGB / %.2fGB", memBar, memUsedGb, memTotalGb),
+			lipgloss.JoinHorizontal(lipgloss.Left,
+				whiteText.Render("CPU Usage:    "),
+				createBlueWhiteBar(m.metrics.CPU.Percentage, 30),
+				whiteText.Render(fmt.Sprintf(" %.2f%%", m.metrics.CPU.Percentage)),
+			),
+			lipgloss.JoinHorizontal(lipgloss.Left,
+				whiteText.Render("Memory Usage: "),
+				createBlueWhiteBar(memPerc, 30),
+				whiteText.Render(fmt.Sprintf(" %.2fGB / %.2fGB", memUsedGb, memTotalGb)),
+			),
 			"",
-			fmt.Sprintf("Active Containers: %d", m.metrics.ActiveContainers),
-			fmt.Sprintf("Total Images:      %d", m.metrics.Images),
+			lipgloss.JoinHorizontal(lipgloss.Left,
+				whiteText.Render("Active Containers: "),
+				whiteText.Render(fmt.Sprintf("%d", m.metrics.ActiveContainers)),
+			),
+			lipgloss.JoinHorizontal(lipgloss.Left,
+				whiteText.Render("Total Images:      "),
+				whiteText.Render(fmt.Sprintf("%d", m.metrics.Images)),
+			),
 			"",
-			lipgloss.NewStyle().Foreground(colorSubtext).Render("Last updated: "+time.Now().Format("15:04:05")),
+			lipgloss.NewStyle().Foreground(colorGrayLight).Render("Last updated: "+time.Now().Format("15:04:05")),
 		)
-		content = activePaneStyle.Width(width - 4).Height(height - 4).Render(stats)
+		content = activePaneStyle.Width(width - 2).Height(height).Render(stats)
 
 	case tabContainers:
-		if m.isLoading {
-			content = activePaneStyle.Width(width - 4).Height(height - 4).Align(lipgloss.Center).Render("\n\nLoading Docker API Data...")
-			break
-		}
-
-		headers := []string{"STATUS", "NAME", "IMAGE", "UPTIME", "STATE"}
+		headers := []string{"STATUS", "NAME", "IMAGE", "STATE"}
 		var rows [][]string
 		for _, c := range m.containers {
-			statusIcon := "🔴"
+			status := "exited"
 			if strings.Contains(strings.ToLower(c.State), "running") {
-				statusIcon = "🟢"
+				status = "running"
 			}
-			rows = append(rows, []string{
-				statusIcon,
-				c.Name,
-				c.Image,
-				c.Status,
-				c.State,
-			})
+			rows = append(rows, []string{status, c.Name, c.Image, c.State})
 		}
-
-		// Calculate scroll
-		offset := m.scrollOffsets[tabContainers]
-		if offset > len(rows)-maxVisibleItems && len(rows) > maxVisibleItems {
-			offset = len(rows) - maxVisibleItems
-		}
-		if offset < 0 {
-			offset = 0
-		}
-		visibleRows := rows[offset:min(offset+maxVisibleItems, len(rows))]
-
-		t := table.New().
-			Headers(headers...).
-			Rows(visibleRows...).
-			BaseStyle(rowStyle).
-			StyleFunc(func(row, col int) lipgloss.Style {
-				if row == 0 { // header
-					return columnHeaderStyle
-				}
-				return rowStyle
-			})
-
-		scrollInfo := ""
-		if len(rows) > maxVisibleItems {
-			scrollInfo = fmt.Sprintf(" (%d-%d of %d)", offset+1, min(offset+maxVisibleItems, len(rows)), len(rows))
-		}
-
-		content = activePaneStyle.Width(width - 4).Height(height - 4).Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				headerStyle.Render("Active Containers"+scrollInfo),
-				t.String(),
-			),
-		)
+		content = renderTable("CONTAINERS", headers, rows, tabContainers)
 
 	case tabImages:
-		if m.isLoading {
-			content = activePaneStyle.Width(width - 4).Height(height - 4).Align(lipgloss.Center).Render("\n\nLoading Docker API Data...")
-			break
-		}
-
-		headers := []string{"REPOSITORY", "TAG", "ID", "SIZE", "CREATED"}
+		headers := []string{"REPOSITORY", "TAG", "SIZE", "CREATED"}
 		var rows [][]string
 		for _, img := range m.images {
 			sizeMb := fmt.Sprintf("%.2f MB", float64(img.Size)/(1024*1024))
-			createdTime := time.Unix(img.Created, 0).Format("2006-01-02")
-			rows = append(rows, []string{
-				img.Repository,
-				img.Tag,
-				img.ID,
-				sizeMb,
-				createdTime,
-			})
+			created := time.Unix(img.Created, 0).Format("2006-01-02")
+			rows = append(rows, []string{img.Repository, img.Tag, sizeMb, created})
 		}
-
-		// Calculate scroll
-		offset := m.scrollOffsets[tabImages]
-		if offset > len(rows)-maxVisibleItems && len(rows) > maxVisibleItems {
-			offset = len(rows) - maxVisibleItems
-		}
-		if offset < 0 {
-			offset = 0
-		}
-		visibleRows := rows[offset:min(offset+maxVisibleItems, len(rows))]
-
-		t := table.New().
-			Headers(headers...).
-			Rows(visibleRows...).
-			BaseStyle(rowStyle).
-			StyleFunc(func(row, col int) lipgloss.Style {
-				if row == 0 { // header
-					return columnHeaderStyle
-				}
-				return rowStyle
-			})
-
-		scrollInfo := ""
-		if len(rows) > maxVisibleItems {
-			scrollInfo = fmt.Sprintf(" (%d-%d of %d)", offset+1, min(offset+maxVisibleItems, len(rows)), len(rows))
-		}
-
-		content = activePaneStyle.Width(width - 4).Height(height - 4).Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				headerStyle.Render("Local Images"+scrollInfo),
-				t.String(),
-			),
-		)
+		content = renderTable("IMAGES", headers, rows, tabImages)
 
 	case tabNetwork:
-		if m.isLoading {
-			content = activePaneStyle.Width(width - 4).Height(height - 4).Align(lipgloss.Center).Render("\n\nLoading Docker API Data...")
-			break
-		}
-
-		headers := []string{"ID", "NAME", "HOST", "PORT", "CONTAINER_PORT"}
+		headers := []string{"ID", "NAME", "HOST", "PORT"}
 		var rows [][]string
-
-		for _, ctn := range m.network {
-			rows = append(rows, []string{
-				ctn.Container.ID,
-				ctn.Container.Name,
-				ctn.Host,
-				ctn.Port,
-				ctn.Container_port,
-			})
+		for _, n := range m.network {
+			rows = append(rows, []string{n.Container.ID[:12], n.Container.Name, n.Host, n.Port})
 		}
-
-		// Calculate scroll
-		offset := m.scrollOffsets[tabNetwork]
-		if offset > len(rows)-maxVisibleItems && len(rows) > maxVisibleItems {
-			offset = len(rows) - maxVisibleItems
-		}
-		if offset < 0 {
-			offset = 0
-		}
-		visibleRows := rows[offset:min(offset+maxVisibleItems, len(rows))]
-
-		t := table.New().
-			Headers(headers...).
-			Rows(visibleRows...).
-			BaseStyle(rowStyle).
-			StyleFunc(func(row, col int) lipgloss.Style {
-				if row == 0 { // header
-					return columnHeaderStyle
-				}
-				return rowStyle
-			})
-
-		scrollInfo := ""
-		if len(rows) > maxVisibleItems {
-			scrollInfo = fmt.Sprintf(" (%d-%d of %d)", offset+1, min(offset+maxVisibleItems, len(rows)), len(rows))
-		}
-
-		content = activePaneStyle.Width(width - 4).Height(height - 4).Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				headerStyle.Render("Network info"+scrollInfo),
-				t.String(),
-			),
-		)
-
+		content = renderTable("NETWORKS", headers, rows, tabNetwork)
 	}
 
 	return content
@@ -240,6 +201,13 @@ func (m Model) renderedContent(width, height int) string {
 
 func min(a, b int) int {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
 		return a
 	}
 	return b
