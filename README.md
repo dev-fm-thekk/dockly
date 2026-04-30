@@ -1,7 +1,7 @@
 
 ![Logo](https://github.com/dev-fm-thekk/dockly/blob/main/assets/dockly%20(1).png?raw=true)
 
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](https://choosealicense.com/licenses/mit/)
 ![Bubble Tea](https://img.shields.io/badge/BUBBLE%20TEA-%2318181b.svg?style=for-the-badge&logo=charm&logoColor=B7A8FF)
 ![Go](https://img.shields.io/badge/GO-%2318181b.svg?style=for-the-badge&logo=go&logoColor=00ADD8)
 # Dockly
