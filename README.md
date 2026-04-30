@@ -1,9 +1,14 @@
 
 ![Logo](https://github.com/dev-fm-thekk/dockly/blob/main/assets/dockly%20(1).png?raw=true)
 
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](https://choosealicense.com/licenses/mit/)
-![Bubble Tea](https://img.shields.io/badge/BUBBLE%20TEA-%2318181b.svg?style=for-the-badge&logo=charm&logoColor=B7A8FF)
-![Go](https://img.shields.io/badge/GO-%2318181b.svg?style=for-the-badge&logo=go&logoColor=00ADD8)
+<p align="center">
+  <a href="https://choosealicense.com/licenses/mit/">
+    <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" />
+  </a>&nbsp;&nbsp;
+  <img src="https://img.shields.io/badge/Bubble%20Tea-18181b?style=for-the-badge&logo=charm&logoColor=B7A8FF" />&nbsp;&nbsp;
+  <img src="https://img.shields.io/badge/Go-18181b?style=for-the-badge&logo=go&logoColor=00ADD8" />
+</p>
+
 # Dockly
 
 Dockly is a lightweight TUI(Terminal User Interface) for visualizing container details without using docker cli or docker desktop
