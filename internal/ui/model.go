@@ -12,7 +12,6 @@ const (
 	tabContainers
 	tabImages
 	tabNetwork
-	tabAccount
 )
 
 type apiDataMsg struct {
@@ -31,7 +30,6 @@ func fetchData() tea.Msg {
 	}
 }
 
-// Model represents the top-level Bubble Tea model for the dashboard.
 type Model struct {
 	width     int
 	height    int
@@ -45,14 +43,16 @@ type Model struct {
 	isLoading  bool
 
 	scrollOffsets map[int]int
+	cursor        map[int]int // Track current selected row per tab
 }
 
 func NewModel() Model {
 	return Model{
 		activeTab:     tabOverview,
-		tabs:          []string{"Overview", "Containers", "Images", "Network"},
+		tabs:          []string{"OVERVIEW", "CONTAINERS", "IMAGES", "NETWORKS"},
 		isLoading:     true,
 		scrollOffsets: make(map[int]int),
+		cursor:        make(map[int]int),
 	}
 }
 
@@ -81,11 +81,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "shift+tab", "left", "h":
 			m.activeTab = (m.activeTab - 1 + len(m.tabs)) % len(m.tabs)
 		case "up", "k":
-			if m.scrollOffsets[m.activeTab] > 0 {
-				m.scrollOffsets[m.activeTab]--
+			limit := 0
+			switch m.activeTab {
+			case tabContainers:
+				limit = len(m.containers)
+			case tabImages:
+				limit = len(m.images)
+			case tabNetwork:
+				limit = len(m.network)
 			}
+
+			if limit > 0 {
+				if m.cursor[m.activeTab] == 0 {
+					m.cursor[m.activeTab] = limit - 1 // Wrap to bottom
+				} else {
+					m.cursor[m.activeTab]--
+				}
+			}
+
 		case "down", "j":
-			m.scrollOffsets[m.activeTab]++
+			limit := 0
+			switch m.activeTab {
+			case tabContainers:
+				limit = len(m.containers)
+			case tabImages:
+				limit = len(m.images)
+			case tabNetwork:
+				limit = len(m.network)
+			}
+
+			if limit > 0 {
+				if m.cursor[m.activeTab] == limit-1 {
+					m.cursor[m.activeTab] = 0 // Wrap to top
+				} else {
+					m.cursor[m.activeTab]++
+				}
+			}
 		}
 	}
 	return m, nil
@@ -93,30 +124,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() tea.View {
 	if m.width == 0 {
-		return tea.NewView("Initializing...") // Wait for first WindowSizeMsg
+		return tea.NewView("Initializing...")
 	}
-
-	title := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, titleStyle.Render("Dockly"))
 
 	tabs := m.renderedTabs(m.width)
+	footerText := " tab • h/l navigation  |  j/k select  |  enter details  |  q quit "
+	footer := footerStyle.Width(m.width).Align(lipgloss.Right).Render(footerText)
 
-	footerText := "↑/k up • ↓/j down • →/l/tab next • ←/h/shift+tab prev • q quit"
-	footer := footerStyle.Width(m.width).Align(lipgloss.Center).Render(footerText)
+	contentHeight := m.height - lipgloss.Height(tabs) - lipgloss.Height(footer) - 1
+	content := m.renderedContent(m.width, contentHeight)
 
-	// Calculate available height: Total - Title - Tabs - Footer - Padding
-	availableHeight := m.height - lipgloss.Height(title) - lipgloss.Height(tabs) - lipgloss.Height(footer) - 2
-	if availableHeight < 5 {
-		return tea.NewView(lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, "Terminal size too small"))
-	}
-
-	content := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, m.renderedContent(m.width, availableHeight))
-
-	ui := lipgloss.JoinVertical(lipgloss.Top,
-		title,
+	ui := lipgloss.JoinVertical(lipgloss.Left,
 		tabs,
 		content,
 		footer,
 	)
 
-	return tea.NewView(lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, ui))
+	return tea.NewView(ui)
 }
